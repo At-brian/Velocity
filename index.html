@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Suivi de Vélocité Multi-Équipes</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        input, button, select { margin: 5px; }
+        table { border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background: #eee; }
+        .row { margin-bottom: 10px; }
+        @media (max-width: 700px) {
+            body { margin: 5px; }
+            canvas { width: 100% !important; height: auto !important; }
+        }
+    </style>
+</head>
+<body>
+    <h2>Suivi de vélocité (multi-équipes)</h2>
+
+    <div class="row">
+        <label>Équipe : 
+            <select id="teamSelect"></select>
+        </label>
+        <input id="newTeamInput" placeholder="Nouvelle équipe">
+        <button onclick="addTeam()">Ajouter équipe</button>
+    </div>
+
+    <div class="row">
+        <label>Capacité équipe par sprint :
+            <input id="capacityInput" type="number" min="1" value="30"> points
+        </label>
+    </div>
+
+    <h3>Ajouter un sprint</h3>
+    <label>Tâches accomplies (points) :
+        <input id="doneInput" type="number" min="0" value="0">
+    </label>
+    <button onclick="addSprint()">Ajouter le sprint</button>
+    <button onclick="resetSprints()" style="color:red">Réinitialiser l’historique</button>
+    <button onclick="exportCSV()">Exporter CSV</button>
+
+    <table id="velocityTable">
+        <tr>
+            <th>Sprint</th>
+            <th>Capacité</th>
+            <th>Points réalisés</th>
+        </tr>
+    </table>
+
+    <h3>Statistiques</h3>
+    <div id="stats"></div>
+
+    <canvas id="velocityChart" width="600" height="200"></canvas>
+
+    <footer style="margin-top: 40px; font-size: small; color: #888;">
+        Simple outil open source — par <b>ChatGPT + Atman</b>
+    </footer>
+
+    <script>
+        // Structure : { "NomEquipe1": [ {capacity, done}, ... ], ... }
+        let allTeams = JSON.parse(localStorage.getItem('velocityMultiTeams')) || {};
+        let currentTeam = Object.keys(allTeams)[0] || "Equipe A";
+        if (!allTeams[currentTeam]) allTeams[currentTeam] = [];
+
+        // Initialisation sélecteur
+        function updateTeamSelect() {
+            const select = document.getElementById('teamSelect');
+            select.innerHTML = '';
+            Object.keys(allTeams).forEach(team => {
+                let option = document.createElement('option');
+                option.value = team;
+                option.innerText = team;
+                select.appendChild(option);
+            });
+            select.value = currentTeam;
+        }
+
+        document.getElementById('teamSelect').onchange = function() {
+            currentTeam = this.value;
+            updateTable();
+            updateStats();
+            updateChart();
+            document.getElementById('capacityInput').value = getLastCapacity() || 30;
+        };
+
+        // Correction ici !
+        function addTeam() {
+            const name = document.getElementById('newTeamInput').value.trim();
+            if (name && !allTeams[name]) {
+                allTeams[name] = [];
+                currentTeam = name;
+                saveTeams();
+                updateTeamSelect();
+                document.getElementById('teamSelect').value = currentTeam;
+                document.getElementById('teamSelect').dispatchEvent(new Event('change'));
+                document.getElementById('newTeamInput').value = '';
+            }
+        }
+
+        function getLastCapacity() {
+            let sprints = allTeams[currentTeam];
+            if (sprints.length === 0) return null;
+            return sprints[sprints.length-1].capacity;
+        }
+
+        function addSprint() {
+            const capacity = parseInt(document.getElementById('capacityInput').value, 10);
+            const done = parseInt(document.getElementById('doneInput').value, 10);
+            allTeams[currentTeam].push({capacity, done});
+            saveTeams();
+            updateTable();
+            updateStats();
+            updateChart();
+        }
+
+        function resetSprints() {
+            if (confirm("Supprimer tout l'historique de cette équipe ?")) {
+                allTeams[currentTeam] = [];
+                saveTeams();
+                updateTable();
+                updateStats();
+                updateChart();
+            }
+        }
+
+        function saveTeams() {
+            localStorage.setItem('velocityMultiTeams', JSON.stringify(allTeams));
+        }
+
+        function updateTable() {
+            const table = document.getElementById('velocityTable');
+            table.innerHTML = '<tr><th>Sprint</th><th>Capacité</th><th>Points réalisés</th></tr>';
+            allTeams[currentTeam].forEach((sprint, idx) => {
+                table.innerHTML += `<tr>
+                    <td>${idx+1}</td>
+                    <td>${sprint.capacity}</td>
+                    <td>${sprint.done}</td>
+                </tr>`;
+            });
+        }
+
+        function updateStats() {
+            let sprints = allTeams[currentTeam];
+            if (!sprints || sprints.length === 0) {
+                document.getElementById('stats').innerHTML = 'Pas de sprint ajouté.';
+                return;
+            }
+            const total = sprints.reduce((sum, s) => sum + s.done, 0);
+            const avg = (total / sprints.length).toFixed(2);
+            document.getElementById('stats').innerHTML = `
+                <b>Vélocité moyenne :</b> ${avg} points/sprint<br>
+                <b>Prévision :</b> à ce rythme, il faudra ${(sprints[sprints.length-1].capacity / avg).toFixed(1)} sprints pour remplir la capacité saisie.
+            `;
+        }
+
+        // Export CSV
+        function exportCSV() {
+            let sprints = allTeams[currentTeam];
+            if (!sprints || sprints.length === 0) return;
+            let csv = "Sprint,Capacité,Points réalisés
+";
+            sprints.forEach((s, idx) => {
+                csv += `${idx+1},${s.capacity},${s.done}
+`;
+            });
+            let blob = new Blob([csv], {type: 'text/csv'});
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `velocite_${currentTeam.replace(/\s/g,'_')}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Chart.js graph
+        let chart;
+        function updateChart() {
+            let sprints = allTeams[currentTeam] || [];
+            let labels = sprints.map((s, i) => "Sprint " + (i + 1));
+            let data = sprints.map(s => s.done);
+
+            const ctx = document.getElementById('velocityChart').getContext('2d');
+            if (chart) chart.destroy();
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Vélocité (points réalisés)',
+                        data: data,
+                        fill: false,
+                        tension: 0.2,
+                        pointRadius: 4,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: false,
+                    plugins: {legend: {display: false}},
+                    scales: {y: {beginAtZero: true}}
+                }
+            });
+        }
+
+        // Init affichage
+        updateTeamSelect();
+        document.getElementById('capacityInput').value = getLastCapacity() || 30;
+        updateTable();
+        updateStats();
+        updateChart();
+    </script>
+</body>
+</html>
